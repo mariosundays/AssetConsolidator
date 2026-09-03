@@ -4,7 +4,7 @@ exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                   "test_logic.py")).read().split('fails = []')[0])
 import asset_consolidator as ac
 from asset_consolidator import (COL_ON, COL_NODE, COL_EXT, COL_FILE,
-                                COL_WHY, COL_FILES, COL_SIZE, COL_DEST,
+                                COL_LOCATION, COL_FILES, COL_SIZE, COL_DEST,
                                 CHECK_COL_W, MIN_COL_W)
 fails=[]
 def check(l,g,w):
@@ -27,7 +27,7 @@ class D:
     def __init__(s,t): s.table=t; s._applying_fit=False; s._user_sized=False
 
 # Natural widths typical of a real scene: long source and dest paths
-NAT = {COL_ON:60, COL_NODE:340, COL_EXT:45, COL_FILE:1150, COL_WHY:105,
+NAT = {COL_ON:60, COL_NODE:340, COL_EXT:45, COL_FILE:1150, COL_LOCATION:105,
        COL_FILES:50, COL_SIZE:70, COL_DEST:520}
 
 for vp in (1102, 1400, 1719, 2400):
@@ -52,7 +52,7 @@ check("tiny: path >= floor", w[COL_FILE] >= MIN_COL_W, True)
 check("tiny: dest >= floor", w[COL_DEST] >= MIN_COL_W, True)
 
 print("\n=== short paths: no artificial stretching beyond natural ===")
-SHORT={COL_ON:60,COL_NODE:200,COL_EXT:45,COL_FILE:260,COL_WHY:105,COL_FILES:50,COL_SIZE:70,COL_DEST:240}
+SHORT={COL_ON:60,COL_NODE:200,COL_EXT:45,COL_FILE:260,COL_LOCATION:105,COL_FILES:50,COL_SIZE:70,COL_DEST:240}
 t=T(SHORT,1800); D(t).fit_columns()
 check("path stays natural", t.columnWidth(COL_FILE), 260)
 check("dest stays natural", t.columnWidth(COL_DEST), 240)

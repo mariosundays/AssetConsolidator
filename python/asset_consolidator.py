@@ -218,14 +218,15 @@ PICK_OUTSIDE = "outside project"
 
 def verdict(resolved, root, exists):
     """
-    Why this reference is (or is not) worth consolidating.
+    What kind of location this reference lives in, and whether it is
+    worth consolidating.
 
     Everything the scan returns already lives outside the project, so the
     baseline answer is always "consolidate it". The codes exist to say how
     urgent it is: a file on a teammate's drive letter or in %TEMP% will break
     far sooner than one sitting beside the project on the same disk.
 
-    Returns (recommend, reason).
+    Returns (recommend, location).
     """
     if not exists:
         return False, PICK_MISSING
@@ -252,15 +253,25 @@ def verdict(resolved, root, exists):
     return True, PICK_OUTSIDE
 
 
-REASON_HELP = {
-    PICK_MISSING: "Not on disk. Nothing to copy -- fix the path first.",
-    PICK_VOLATILE: "In a temp or downloads folder that may be cleared.",
-    PICK_NETWORK: "On a network share. Breaks when the share is unavailable.",
-    PICK_OTHER_DRIVE: "On a different drive from the project. Breaks on any "
-                      "machine without that drive letter.",
-    PICK_LIBRARY: "In a shared asset library. Breaks if the library moves "
-                  "or someone else opens the scene.",
-    PICK_OUTSIDE: "Outside the project folder.",
+LOCATION_HELP = {
+    PICK_MISSING:
+        "The file is not on disk at this path.\n"
+        "Nothing to copy -- fix the path first.",
+    PICK_VOLATILE:
+        "A temp or downloads folder.\n"
+        "Windows and browsers clear these, so the file may simply vanish.",
+    PICK_NETWORK:
+        "A network share.\n"
+        "Unavailable off the network, and slow to load over it.",
+    PICK_OTHER_DRIVE:
+        "A different drive from the project.\n"
+        "Any machine without that drive letter sees a missing file.",
+    PICK_LIBRARY:
+        "A shared asset or texture library.\n"
+        "Moving or reorganising the library breaks the scene.",
+    PICK_OUTSIDE:
+        "Outside the project folder, but otherwise unremarkable.\n"
+        "Fine locally, missing for anyone you hand the scene to.",
 }
 
 
@@ -324,7 +335,7 @@ class Reference(object):
         self.error = ""
 
         # Why this one is worth pulling in, and whether to tick it by default.
-        self.recommend, self.reason = verdict(resolved, root, self.exists)
+        self.recommend, self.location = verdict(resolved, root, self.exists)
         self.selected = self.recommend
 
         self.subfolder = classify(resolved)
@@ -593,7 +604,7 @@ def drive_of(path):
     return drive.upper() if drive else "?"
 
 
-(COL_ON, COL_NODE, COL_EXT, COL_FILE, COL_WHY, COL_FILES, COL_SIZE,
+(COL_ON, COL_NODE, COL_EXT, COL_FILE, COL_LOCATION, COL_FILES, COL_SIZE,
  COL_DEST) = range(8)
 
 CHECK_COL_W = 28    # checkbox column, always this wide
@@ -668,7 +679,7 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         # Table
         self.table = QtWidgets.QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
-            ["", "Node", "Type", "Current path", "Why", "Files", "Size",
+            ["", "Node", "Type", "Current path", "Location", "Files", "Size",
              "Will be copied to"])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(
@@ -704,7 +715,7 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         # Starting widths. Replaced by a real fit once rows exist -- with an
         # empty table there is nothing to measure.
         for col, width in ((COL_ON, CHECK_COL_W), (COL_NODE, 230),
-                           (COL_EXT, 55), (COL_FILE, 330), (COL_WHY, 110),
+                           (COL_EXT, 55), (COL_FILE, 330), (COL_LOCATION, 110),
                            (COL_FILES, 55), (COL_SIZE, 75), (COL_DEST, 300)):
             self.table.setColumnWidth(col, width)
         layout.addWidget(self.table, 1)
@@ -809,7 +820,7 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         table.resizeColumnsToContents()
         table.setColumnWidth(COL_ON, CHECK_COL_W)
 
-        for col in (COL_EXT, COL_WHY, COL_FILES, COL_SIZE):
+        for col in (COL_EXT, COL_LOCATION, COL_FILES, COL_SIZE):
             table.setColumnWidth(col, table.columnWidth(col) + 10)
 
         viewport = table.viewport().width()
@@ -817,7 +828,7 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             return
 
         fixed = sum(table.columnWidth(c)
-                    for c in (COL_ON, COL_EXT, COL_WHY, COL_FILES, COL_SIZE))
+                    for c in (COL_ON, COL_EXT, COL_LOCATION, COL_FILES, COL_SIZE))
 
         # Node rarely needs more than a quarter of the window, and on a
         # narrow one it has to give way further so both path columns stay
@@ -921,11 +932,11 @@ class ConsolidatorDialog(QtWidgets.QDialog):
                 drive, ref.raw))
             self.table.setItem(row, COL_FILE, path_item)
 
-            why_item = QtWidgets.QTableWidgetItem(ref.reason)
-            why_item.setForeground(QtGui.QColor(
-                PICK_COLOURS.get(ref.reason, DEFAULT_EXT_COLOUR)))
-            why_item.setToolTip(REASON_HELP.get(ref.reason, ref.reason))
-            self.table.setItem(row, COL_WHY, why_item)
+            location_item = QtWidgets.QTableWidgetItem(ref.location)
+            location_item.setForeground(QtGui.QColor(
+                PICK_COLOURS.get(ref.location, DEFAULT_EXT_COLOUR)))
+            location_item.setToolTip(LOCATION_HELP.get(ref.location, ref.location))
+            self.table.setItem(row, COL_LOCATION, location_item)
 
             count = "seq {}".format(ref.file_count) if ref.is_seq \
                 else ("1" if ref.exists else "missing")
@@ -949,7 +960,7 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             # Missing files override every other colour and cannot be selected.
             if not ref.exists:
                 missing = QtGui.QColor(MISSING_COLOUR)
-                for col in (COL_NODE, COL_EXT, COL_FILE, COL_WHY,
+                for col in (COL_NODE, COL_EXT, COL_FILE, COL_LOCATION,
                             COL_FILES, COL_DEST):
                     self.table.item(row, col).setForeground(missing)
                 path_item.setToolTip(
@@ -1043,10 +1054,10 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             act_ext.triggered.connect(lambda: self._isolate_rows(
                 self._rows_where(lambda r: r.ext_label == label)))
 
-            act_reason = menu.addAction(
-                'Select only "{}"'.format(ref.reason))
-            act_reason.triggered.connect(lambda: self._isolate_rows(
-                self._rows_where(lambda r: r.reason == ref.reason)))
+            act_location = menu.addAction(
+                'Select only "{}"'.format(ref.location))
+            act_location.triggered.connect(lambda: self._isolate_rows(
+                self._rows_where(lambda r: r.location == ref.location)))
 
             act_folder = menu.addAction("Select only this folder")
             act_folder.triggered.connect(lambda: self._isolate_rows(

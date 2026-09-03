@@ -15,7 +15,7 @@ Menu: **Tools > Consolidate Assets**
 
 Every external reference in the scene, with why each one is worth pulling in
 and where it will land. Right-click isolates a group -- one drive, one file
-type, one folder, or one reason:
+type, one folder, or one kind of location:
 
 ![The right-click menu](docs/screenshot-menu.png)
 
@@ -57,10 +57,11 @@ absolute path rather than a token that would point somewhere wrong.
 ## Recommendations
 
 Everything the scan lists is outside the project, so everything is a valid
-candidate. The `Why` column ranks how urgent each one is, and the recommended
-rows are ticked for you on scan:
+candidate. The `Location` column says what kind of place each file lives in,
+ranked by how likely that link is to break. The recommended rows are ticked
+for you on scan:
 
-| Why | Meaning |
+| Location | Meaning |
 |---|---|
 | `temp folder` | In %TEMP% or Downloads. Could vanish on reboot |
 | `network path` | On a UNC share. Breaks when the share is offline |
@@ -98,7 +99,7 @@ row ticked. "Add to selection" is there when you want the additive version.
 - Select only what is on the same **drive**
 - Select only files of the same **extension**
 - Select only this **folder**
-- Select only the same **reason**
+- Select only the same kind of **location**
 - **Consolidate this file now** -- copies just that one file, whatever is
   ticked. With several rows selected you also get "Consolidate these N files".
 - Copy path, Show in Explorer, Fit columns
