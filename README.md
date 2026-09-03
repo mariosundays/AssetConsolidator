@@ -11,6 +11,12 @@ Houdini 20.5+ | Windows, macOS, Linux | GPL-3.0
 
 Menu: **Tools > Consolidate Assets**
 
+![The main window](docs/screenshot-menu.png)
+
+Every external reference in the scene, with why each one is worth pulling in
+and where it will land. Right-click isolates a group -- one drive, one file
+type, one folder, or one reason.
+
 ## What it does
 
 1. Walks every file-typed parameter in the scene.
