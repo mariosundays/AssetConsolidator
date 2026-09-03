@@ -42,20 +42,23 @@ os.environ["HIP"]="C:/proj/shot01"; os.environ["JOB"]="D:/unrelated"
 check("hip not under job -> HIP", ac.project_root(), "C:/proj/shot01")
 
 print("\n=== isolate semantics ===")
-class Row:
-    def __init__(s,st): s.setState=st
 class FakeItem:
-    def __init__(s): s.state=None
+    """Carries its ref the way the real checkbox cell does."""
+    def __init__(s, ref=None): s.state=None; s._ref=ref
     def setCheckState(s,v): s.state=v
+    def data(s,_role): return s._ref
 class FakeTable:
-    def __init__(s,n): s.items={(r,0):FakeItem() for r in range(n)}
+    def __init__(s,refs): s.items={(r,0):FakeItem(ref)
+                                   for r,ref in enumerate(refs)}
     def blockSignals(s,b): pass
-    def item(s,r,c): return s.items[(r,0)]
+    def rowCount(s): return len(s.items)
+    def item(s,r,c): return s.items.get((r,0))
 class Ref2:
     def __init__(s,e=True): s.exists=e; s.selected=True
 class Dlg:
     _isolate_rows = ac.ConsolidatorDialog._isolate_rows
-    def __init__(s,refs): s.refs=refs; s.table=FakeTable(len(refs))
+    _ref_at = ac.ConsolidatorDialog._ref_at
+    def __init__(s,refs): s.refs=refs; s.table=FakeTable(refs)
     def _update_status(s): pass
 
 refs=[Ref2() for _ in range(5)]

@@ -607,6 +607,28 @@ def drive_of(path):
 (COL_ON, COL_NODE, COL_EXT, COL_FILE, COL_LOCATION, COL_FILES, COL_SIZE,
  COL_DEST) = range(8)
 
+class SortableItem(QtWidgets.QTableWidgetItem):
+    """
+    A cell that sorts on a supplied key rather than its displayed text.
+
+    Without this, Size would sort as a string -- "9.0 MB" landing between
+    "8.3 KB" and "99.7 KB" -- and the file count would put "seq 10" before
+    "seq 9".
+    """
+
+    def __init__(self, text, key=None):
+        super(SortableItem, self).__init__(text)
+        self._key = text if key is None else key
+
+    def __lt__(self, other):
+        if isinstance(other, SortableItem):
+            try:
+                return self._key < other._key
+            except TypeError:
+                return str(self._key) < str(other._key)
+        return super(SortableItem, self).__lt__(other)
+
+
 CHECK_COL_W = 28    # checkbox column, always this wide
 MIN_COL_W = 90      # a wide column never shrinks below this
 
@@ -687,6 +709,8 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         self.table.setEditTriggers(
             QtWidgets.QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
+        self.table.setSortingEnabled(True)
+        self.table.sortByColumn(-1, Qt.AscendingOrder)
         self.table.setWordWrap(False)
         # Elide in the middle: the right end of a path holds the filename,
         # which is exactly what you need to keep when space is short.
@@ -706,6 +730,8 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         # Off: it would override manual dragging of the last column.
         header.setStretchLastSection(False)
         header.setSectionsMovable(True)
+        header.setSectionsClickable(True)
+        header.setSortIndicatorShown(True)
         # Double-click a header divider to size that column to its contents;
         # double-click anywhere else on the header to fit every column.
         header.sectionHandleDoubleClicked.connect(self._fit_column)
@@ -899,6 +925,16 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
     def _populate(self):
         self.table.blockSignals(True)
+
+        # Qt re-sorts after every setItem while sorting is on, which would
+        # interleave rows mid-fill. Remember the sort, fill unsorted, then
+        # re-apply it so a rescan keeps the order the user chose.
+        header = self.table.horizontalHeader()
+        sort_col = header.sortIndicatorSection()
+        sort_order = header.sortIndicatorOrder()
+        was_sorting = self.table.isSortingEnabled()
+        self.table.setSortingEnabled(False)
+
         self.table.setRowCount(0)
 
         for ref in self.refs:
@@ -909,6 +945,9 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             check.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled |
                            Qt.ItemIsSelectable)
             check.setCheckState(Qt.Checked if ref.selected else Qt.Unchecked)
+            # Carry the reference on the row itself. Once the table can be
+            # sorted, row number no longer matches the index in self.refs.
+            check.setData(Qt.UserRole, ref)
             self.table.setItem(row, COL_ON, check)
 
             node_item = QtWidgets.QTableWidgetItem(ref.node_path)
@@ -940,12 +979,13 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
             count = "seq {}".format(ref.file_count) if ref.is_seq \
                 else ("1" if ref.exists else "missing")
-            count_item = QtWidgets.QTableWidgetItem(count)
+            count_item = SortableItem(count, ref.file_count)
             count_item.setTextAlignment(Qt.AlignCenter)
             self.table.setItem(row, COL_FILES, count_item)
 
-            size_item = QtWidgets.QTableWidgetItem(
-                _human(ref.size_bytes) if ref.exists else "-")
+            size_item = SortableItem(
+                _human(ref.size_bytes) if ref.exists else "-",
+                ref.size_bytes)
             size_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.table.setItem(row, COL_SIZE, size_item)
 
@@ -968,6 +1008,11 @@ class ConsolidatorDialog(QtWidgets.QDialog):
                 check.setCheckState(Qt.Unchecked)
                 ref.selected = False
 
+        if was_sorting:
+            self.table.setSortingEnabled(True)
+            if sort_col >= 0:
+                self.table.sortByColumn(sort_col, sort_order)
+
         self.table.blockSignals(False)
         self._update_status()
 
@@ -976,15 +1021,23 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
     # -- context menu -------------------------------------------------------
 
+    def _ref_at(self, row):
+        """
+        The reference shown on a given row. Rows are reordered by sorting,
+        so never index self.refs by row number -- go through here.
+        """
+        item = self.table.item(row, COL_ON)
+        return item.data(Qt.UserRole) if item is not None else None
+
     def _selected_rows(self):
         return sorted({idx.row() for idx in self.table.selectedIndexes()})
 
     def _set_rows(self, rows, state):
         self.table.blockSignals(True)
         for row in rows:
-            if not (0 <= row < len(self.refs)):
+            ref = self._ref_at(row)
+            if ref is None:
                 continue
-            ref = self.refs[row]
             if state and not ref.exists:
                 continue  # never tick something that is not on disk
             ref.selected = state
@@ -1000,7 +1053,10 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         """
         self.table.blockSignals(True)
         wanted = set(rows)
-        for row, ref in enumerate(self.refs):
+        for row in range(self.table.rowCount()):
+            ref = self._ref_at(row)
+            if ref is None:
+                continue
             state = row in wanted and ref.exists
             ref.selected = state
             self.table.item(row, COL_ON).setCheckState(
@@ -1009,7 +1065,12 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         self._update_status()
 
     def _rows_where(self, predicate):
-        return [i for i, r in enumerate(self.refs) if predicate(r)]
+        rows = []
+        for row in range(self.table.rowCount()):
+            ref = self._ref_at(row)
+            if ref is not None and predicate(ref):
+                rows.append(row)
+        return rows
 
     def _context_menu(self, pos):
         item = self.table.itemAt(pos)
@@ -1022,9 +1083,7 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             self.table.selectRow(item.row())
 
         menu = QtWidgets.QMenu(self)
-        ref = None
-        if item is not None and 0 <= item.row() < len(self.refs):
-            ref = self.refs[item.row()]
+        ref = self._ref_at(item.row()) if item is not None else None
 
         if rows:
             count = len(rows)
@@ -1072,8 +1131,8 @@ class ConsolidatorDialog(QtWidgets.QDialog):
                 [ref], "Consolidate this file"))
 
             if len(rows) > 1:
-                chosen = [self.refs[r] for r in rows
-                          if 0 <= r < len(self.refs) and self.refs[r].exists]
+                chosen = [self._ref_at(r) for r in rows]
+                chosen = [r for r in chosen if r is not None and r.exists]
                 act_these = menu.addAction(
                     "Consolidate these {} files now".format(len(chosen)))
                 act_these.setEnabled(bool(chosen))
@@ -1122,16 +1181,16 @@ class ConsolidatorDialog(QtWidgets.QDialog):
     def _on_item_changed(self, item):
         if item.column() != COL_ON:
             return
-        row = item.row()
-        if 0 <= row < len(self.refs):
-            self.refs[row].selected = (item.checkState() == Qt.Checked)
+        ref = self._ref_at(item.row())
+        if ref is not None:
+            ref.selected = (item.checkState() == Qt.Checked)
             self._update_status()
 
     def _on_double_click(self, item):
-        row = item.row()
-        if not (0 <= row < len(self.refs)):
+        ref = self._ref_at(item.row())
+        if ref is None:
             return
-        node = self.refs[row].parm.node()
+        node = ref.parm.node()
         try:
             node.setCurrent(True, clear_all_selected=True)
             for pane in hou.ui.paneTabs():
@@ -1144,7 +1203,10 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
     def _set_all(self, state):
         self.table.blockSignals(True)
-        for row, ref in enumerate(self.refs):
+        for row in range(self.table.rowCount()):
+            ref = self._ref_at(row)
+            if ref is None:
+                continue
             if state and not ref.exists:
                 continue  # never auto-select something that isn't there
             ref.selected = state
@@ -1155,8 +1217,7 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
     def _select_recommended(self):
         """Tick exactly the references worth consolidating."""
-        self._isolate_rows(
-            [i for i, r in enumerate(self.refs) if r.recommend])
+        self._isolate_rows(self._rows_where(lambda r: r.recommend))
 
     def _select_all(self):
         self._set_all(True)
@@ -1166,13 +1227,16 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
     def _select_invert(self):
         self.table.blockSignals(True)
-        for row, ref in enumerate(self.refs):
-            new = not ref.selected
-            if new and not ref.exists:
+        for row in range(self.table.rowCount()):
+            ref = self._ref_at(row)
+            if ref is None:
                 continue
-            ref.selected = new
+            flipped = not ref.selected
+            if flipped and not ref.exists:
+                continue
+            ref.selected = flipped
             self.table.item(row, COL_ON).setCheckState(
-                Qt.Checked if new else Qt.Unchecked)
+                Qt.Checked if flipped else Qt.Unchecked)
         self.table.blockSignals(False)
         self._update_status()
 

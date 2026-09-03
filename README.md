@@ -13,9 +13,9 @@ Menu: **Tools > Consolidate Assets**
 
 ![The main window](docs/screenshot-main.png)
 
-Every external reference in the scene, with why each one is worth pulling in
-and where it will land. Right-click isolates a group -- one drive, one file
-type, one folder, or one kind of location:
+Every external reference in the scene, what kind of place it lives in, and
+where it will land. Click a column heading to sort. Right-click isolates a
+group -- one drive, one file type, one folder, or one kind of location:
 
 ![The right-click menu](docs/screenshot-menu.png)
 
@@ -23,7 +23,8 @@ type, one folder, or one kind of location:
 
 1. Walks every file-typed parameter in the scene.
 2. Flags the ones resolving outside the project root.
-3. Shows them in a table: node, type, current path, why, size, destination.
+3. Shows them in a table: node, type, current path, location, size and
+   destination.
 4. You tick and untick whatever you want.
 5. "Consolidate Assets" copies them in and repoints the parameters.
 
@@ -81,6 +82,8 @@ red and override everything. A legend sits above the status line.
 
 ## Table
 
+- **Click a column heading** to sort by it; click again to reverse. Size
+  sorts by actual bytes and the file count numerically, not as text.
 - **Drag any column divider** to resize -- every column is interactive.
 - **Double-click a divider** fits that column; **double-click the header** fits
   every column. Also on the right-click menu.
