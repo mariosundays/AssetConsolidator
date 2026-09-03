@@ -25,6 +25,8 @@ Menu entry: Tools > Consolidate Assets
 import os
 import re
 import shutil
+import subprocess
+import sys
 
 import hou
 
@@ -1147,6 +1149,10 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             act_copy.triggered.connect(
                 lambda: QtWidgets.QApplication.clipboard().setText(
                     ref.resolved))
+            act_open = menu.addAction("Open with default app")
+            act_open.setEnabled(ref.exists)
+            act_open.triggered.connect(lambda: self._open_file(ref))
+
             act_show = menu.addAction("Show in Explorer")
             act_show.triggered.connect(lambda: self._reveal(ref))
             menu.addSeparator()
@@ -1165,8 +1171,34 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             menu.exec_(where)
         else:
             menu.exec(where)
+    def _open_file(self, ref):
+        """
+        Open the file in whatever the OS has associated with its type. For a
+        sequence this opens the first frame on disk, matching Show in
+        Explorer.
+        """
+        target = ref.frames[0] if (ref.is_seq and ref.frames) else ref.resolved
+        target = os.path.normpath(target)
+
+        if not os.path.exists(target):
+            hou.ui.displayMessage(
+                "File not found:\n{}".format(target),
+                severity=hou.severityType.Warning)
+            return
+
+        try:
+            if sys.platform == "win32":
+                os.startfile(target)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", target])
+            else:
+                subprocess.Popen(["xdg-open", target])
+        except Exception as exc:
+            hou.ui.displayMessage(
+                "Could not open the file:\n{}\n\n{}".format(target, exc),
+                severity=hou.severityType.Error)
+
     def _reveal(self, ref):
-        import subprocess
         target = ref.frames[0] if (ref.is_seq and ref.frames) else ref.resolved
         target = os.path.normpath(target)
         try:

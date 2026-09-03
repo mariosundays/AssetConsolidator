@@ -106,6 +106,8 @@ row ticked. "Add to selection" is there when you want the additive version.
 - Select only files of the same **extension**
 - Select only this **folder**
 - Select only the same kind of **location**
+- **Open with default app** -- opens the file in whatever the OS
+  associates with its type (the first frame, for a sequence)
 - Copy path, Show in Explorer, Fit columns
 
 Right-clicking a row outside the current selection acts on that row, the way a
