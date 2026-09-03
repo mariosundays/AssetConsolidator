@@ -1,4 +1,4 @@
-# Asset Consolidator
+# Houdini Asset Consolidator
 
 A Houdini tool that finds every file your scene references from outside the
 project and copies those files in, repointing the parameters as it goes.
