@@ -1085,6 +1085,25 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         menu = QtWidgets.QMenu(self)
         ref = self._ref_at(item.row()) if item is not None else None
 
+        # The consolidate actions come first: they are what the tool is for,
+        # and they act immediately on what you clicked rather than changing
+        # the tick boxes.
+        if ref is not None:
+            act_one = menu.addAction("Consolidate this file now")
+            act_one.setEnabled(ref.exists)
+            act_one.triggered.connect(lambda: self._consolidate_refs(
+                [ref], "Consolidate this file"))
+
+            if len(rows) > 1:
+                chosen = [self._ref_at(r) for r in rows]
+                chosen = [r for r in chosen if r is not None and r.exists]
+                act_these = menu.addAction(
+                    "Consolidate these {} files now".format(len(chosen)))
+                act_these.setEnabled(bool(chosen))
+                act_these.triggered.connect(lambda: self._consolidate_refs(
+                    chosen, "Consolidate selected files"))
+            menu.addSeparator()
+
         if rows:
             count = len(rows)
             plural = "s" if count != 1 else ""
@@ -1122,22 +1141,6 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             act_folder.triggered.connect(lambda: self._isolate_rows(
                 self._rows_where(
                     lambda r: os.path.dirname(r.resolved) == folder)))
-            menu.addSeparator()
-
-            # Act on this one file without touching the tick boxes.
-            act_one = menu.addAction("Consolidate this file now")
-            act_one.setEnabled(ref.exists)
-            act_one.triggered.connect(lambda: self._consolidate_refs(
-                [ref], "Consolidate this file"))
-
-            if len(rows) > 1:
-                chosen = [self._ref_at(r) for r in rows]
-                chosen = [r for r in chosen if r is not None and r.exists]
-                act_these = menu.addAction(
-                    "Consolidate these {} files now".format(len(chosen)))
-                act_these.setEnabled(bool(chosen))
-                act_these.triggered.connect(lambda: self._consolidate_refs(
-                    chosen, "Consolidate selected files"))
             menu.addSeparator()
 
             act_copy = menu.addAction("Copy path")

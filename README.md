@@ -98,13 +98,14 @@ Menu actions **isolate**: they clear every tick first, then select what you
 asked for. "Select only this row" on a fully selected table leaves exactly one
 row ticked. "Add to selection" is there when you want the additive version.
 
+- **Consolidate this file now** -- copies just that one file, whatever is
+  ticked. With several rows selected you also get "Consolidate these N files".
+  Both sit at the top of the menu.
 - Select only these rows / Add to selection / Deselect these rows
 - Select only what is on the same **drive**
 - Select only files of the same **extension**
 - Select only this **folder**
 - Select only the same kind of **location**
-- **Consolidate this file now** -- copies just that one file, whatever is
-  ticked. With several rows selected you also get "Consolidate these N files".
 - Copy path, Show in Explorer, Fit columns
 
 Right-clicking a row outside the current selection acts on that row, the way a
