@@ -561,6 +561,32 @@ class Reference(object):
             root_token(self.root, self.prefer_var), self.subfolder, name)
 
 
+def raw_value(parm):
+    """
+    The unexpanded parameter value, or None when it is not ours to touch.
+
+    unexpandedString() RAISES on a keyframed parameter rather than returning
+    a value ("Cannot get unexpanded string for parms with keyframes"), so the
+    keyframe test has to come first. Calling it the other way round means the
+    exception handler swallows the parameter and it never appears at all --
+    a keyframed file path was invisible to the whole tool.
+    """
+    try:
+        if parm.keyframes():
+            return None
+    except Exception:
+        pass
+
+    try:
+        raw = parm.unexpandedString()
+    except Exception:
+        return None
+
+    if not raw or not raw.strip():
+        return None
+    return raw
+
+
 def _iter_file_parms():
     """Yield every file-typed parameter in the scene."""
     for node in hou.node("/").allSubChildren(top_down=True,
@@ -596,21 +622,10 @@ def scan(root=None, include_missing=True, prefer_var=None,
     seen = set()
 
     for parm in _iter_file_parms():
-        try:
-            raw = parm.unexpandedString()
-        except Exception:
+        # None means keyframed, empty or unreadable -- not ours to rewrite.
+        raw = raw_value(parm)
+        if raw is None:
             continue
-
-        if not raw or not raw.strip():
-            continue
-
-        # Skip parms driven by an expression or channel -- rewriting those
-        # would destroy the expression.
-        try:
-            if parm.keyframes():
-                continue
-        except Exception:
-            pass
 
         try:
             resolved = parm.eval()
@@ -774,17 +789,9 @@ def find_internal(root):
     found = []
 
     for parm in _iter_file_parms():
-        try:
-            raw = parm.unexpandedString()
-        except Exception:
+        raw = raw_value(parm)
+        if raw is None:
             continue
-        if not raw or not raw.strip():
-            continue
-        try:
-            if parm.keyframes():
-                continue
-        except Exception:
-            pass
         try:
             resolved = _clean(parm.eval())
         except Exception:
@@ -816,17 +823,9 @@ def external_var_paths(root):
     found = []
 
     for parm in _iter_file_parms():
-        try:
-            raw = parm.unexpandedString()
-        except Exception:
+        raw = raw_value(parm)
+        if raw is None or not leading_var(raw):
             continue
-        if not raw or not raw.strip() or not leading_var(raw):
-            continue
-        try:
-            if parm.keyframes():
-                continue
-        except Exception:
-            pass
         try:
             resolved = _clean(parm.eval())
         except Exception:

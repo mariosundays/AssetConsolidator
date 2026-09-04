@@ -205,7 +205,9 @@ per-file consolidate is greyed out for them.
 - **Missing files** are listed in red, cannot be selected, and never have their
   parameter rewritten.
 - **Expression and keyframed parameters are skipped**, so rewriting cannot
-  destroy an expression.
+  destroy an expression. (They are skipped *deliberately* -- Houdini raises
+  rather than returning a value for these, which is easy to turn into an
+  accidental silent drop.)
 - Locked and read-only parameters are reported rather than silently failing.
 - The whole run is a single undo block.
 
@@ -216,9 +218,13 @@ Houdini package `.json` at it, restart Houdini.
 
 ## Status
 
-Working and in use, but young. The scanning, routing and selection logic is
-covered by unit tests; the copy step has been tested on synthetic files rather
-than years of production scenes. Try it on a copy of a scene first.
+Working and in use on real production scenes. The scanning, routing, variable
+and selection logic is covered by 13 test suites that run without Houdini; the
+copy step has been exercised on real shots as well as synthetic fixtures.
+
+Still worth running on a copy of a scene the first time, and the repoint
+checkbox can be turned off for a dry run that copies without touching any
+parameter.
 
 ## Notes for other tools
 

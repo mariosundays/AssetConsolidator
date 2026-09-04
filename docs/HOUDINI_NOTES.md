@@ -49,6 +49,29 @@ A keyframed or expression-driven parameter holds an expression, not a path.
 string. This is silent and not obviously undoable from the user's point of
 view. Always skip them.
 
+### `unexpandedString()` raises on keyframed parms
+
+Order matters, and getting it wrong hides parameters completely:
+
+```python
+# WRONG -- unexpandedString() raises "Cannot get unexpanded string for parms
+# with keyframes", the handler swallows it, and the parm vanishes entirely
+try:
+    raw = parm.unexpandedString()
+except Exception:
+    continue
+if parm.keyframes():
+    continue
+
+# RIGHT -- test for keyframes first
+if parm.keyframes():
+    continue
+raw = parm.unexpandedString()
+```
+
+The failure is silent: a keyframed file path is not *skipped*, it is never
+seen. Confirmed live on Houdini 21.0.512.
+
 ### Values that are not filesystem paths
 
 ```python
