@@ -103,10 +103,24 @@ for you on scan:
 | `other drive` | A different drive from the project |
 | `shared library` | Same drive, but a shared asset or library folder |
 | `outside project` | Outside the project, nothing else notable |
+| `in project` | Already inside the project. Listed only with **Show files already in project**, never ticked |
 | `missing` | Not on disk. Never recommended, never ticked |
 | `folder` | A directory, not a file. Present and fine. Never ticked |
 
 "Select recommended" re-applies that choice at any time.
+
+**Show files already in project** lists every file the scene references,
+including the ones already in the right place. They are never ticked --
+there is nothing to consolidate -- but you can see the whole picture and
+re-token them.
+
+### A variable can point outside the project
+
+A `$JOB/tex/x.jpg` path is *relative*, but if `$JOB` resolves above your
+project root the file is still **outside** it. Those show as external
+references to consolidate, not as paths to re-token -- rewriting the
+token would silently move where the reference points. "Update paths in
+scene" says how many it skipped for this reason.
 
 ## Folder references
 

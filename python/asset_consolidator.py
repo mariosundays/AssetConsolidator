@@ -274,6 +274,7 @@ PICK_NETWORK = "network path"
 PICK_OTHER_DRIVE = "other drive"
 PICK_LIBRARY = "shared library"
 PICK_OUTSIDE = "outside project"
+PICK_INSIDE = "in project"
 PICK_FOLDER = "folder"
 
 
@@ -282,8 +283,9 @@ def verdict(resolved, root, exists, is_dir=False):
     What kind of location this reference lives in, and whether it is
     worth consolidating.
 
-    Everything the scan returns already lives outside the project, so the
-    baseline answer is always "consolidate it". The codes exist to say how
+    Files already inside the project come back as PICK_INSIDE and are never
+    recommended -- they are listed for visibility only. For the rest the
+    baseline answer is "consolidate it", and the codes say how
     urgent it is: a file on a teammate's drive letter or in %TEMP% will break
     far sooner than one sitting beside the project on the same disk.
 
@@ -294,9 +296,14 @@ def verdict(resolved, root, exists, is_dir=False):
 
     # A folder reference is valid and present, but consolidating it means
     # copying a whole tree -- a cache folder can be tens of gigabytes. Never
-    # volunteer that; it has to be an explicit choice.
+    # volunteer that; it has to be an explicit choice. Checked before the
+    # in-project test so a folder still reads as a folder wherever it lives.
     if is_dir:
         return False, PICK_FOLDER
+
+    if is_inside(resolved, root):
+        # Already where it should be: listed for visibility, never ticked.
+        return False, PICK_INSIDE
 
     lowered = (resolved or "").lower()
 
@@ -339,6 +346,10 @@ LOCATION_HELP = {
     PICK_OUTSIDE:
         "Outside the project folder, but otherwise unremarkable.\n"
         "Fine locally, missing for anyone you hand the scene to.",
+    PICK_INSIDE:
+        "Already inside the project.\n"
+        "Nothing to consolidate -- shown so you can see every file the "
+        "scene uses.",
     PICK_FOLDER:
         "A folder, not a file -- a File Cache Base Folder, say.\n"
         "It exists and is not broken. Consolidating copies the whole tree,\n"
@@ -355,6 +366,7 @@ PICK_COLOURS = {
     PICK_OTHER_DRIVE: "#ffb86b",
     PICK_LIBRARY: "#6bb3ff",
     PICK_OUTSIDE: "#7ee787",
+    PICK_INSIDE: "#6a7076",
 }
 
 
@@ -573,7 +585,8 @@ def _iter_file_parms():
             yield parm
 
 
-def scan(root=None, include_missing=True, prefer_var=None):
+def scan(root=None, include_missing=True, prefer_var=None,
+         include_internal=False):
     """
     Walk the scene and return a list of Reference objects for every file
     parameter pointing outside the project root.
@@ -614,7 +627,7 @@ def scan(root=None, include_missing=True, prefer_var=None):
             continue
         if not os.path.isabs(resolved):
             continue
-        if is_inside(resolved, root):
+        if is_inside(resolved, root) and not include_internal:
             continue
 
         key = (parm.node().path(), parm.name())
@@ -785,6 +798,43 @@ def find_internal(root):
             continue
         if not leading_var(raw):
             continue  # hard-coded path, not ours to re-tokenise
+        found.append((parm, raw, resolved))
+
+    return found
+
+
+def external_var_paths(root):
+    """
+    Paths that use a variable but resolve outside the project root.
+
+    These are why a scene can show $JOB parameters while "Update paths in
+    scene" reports nothing to do: the token is real, but it points somewhere
+    the re-tokeniser has no business rewriting. They are consolidation
+    candidates instead.
+    """
+    root = _clean(root)
+    found = []
+
+    for parm in _iter_file_parms():
+        try:
+            raw = parm.unexpandedString()
+        except Exception:
+            continue
+        if not raw or not raw.strip() or not leading_var(raw):
+            continue
+        try:
+            if parm.keyframes():
+                continue
+        except Exception:
+            pass
+        try:
+            resolved = _clean(parm.eval())
+        except Exception:
+            continue
+        if not resolved or not os.path.isabs(resolved):
+            continue
+        if is_inside(resolved, root):
+            continue
         found.append((parm, raw, resolved))
 
     return found
@@ -1089,6 +1139,15 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         self.hide_missing.stateChanged.connect(self.refresh)
         sel_row.addWidget(self.hide_missing)
 
+        self.show_internal = QtWidgets.QCheckBox("Show files already in project")
+        self.show_internal.setToolTip(
+            "List every file the scene references, including ones already\n"
+            "inside the project. Those are never ticked -- there is nothing\n"
+            "to consolidate -- but you can see the whole picture and use\n"
+            "\"Update paths in scene\" on them.")
+        self.show_internal.stateChanged.connect(self.refresh)
+        sel_row.addWidget(self.show_internal)
+
         self.repoint_box = QtWidgets.QCheckBox(
             "Repoint parameters to relative paths")
         self.repoint_box.setToolTip(
@@ -1265,15 +1324,30 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
         entries = find_internal(root)
         pending = [e for e in entries if leading_var(e[1]) != var]
+
+        # Paths that use a variable but resolve OUTSIDE the root are
+        # not ours to re-token: the variable is pointing somewhere
+        # else, and rewriting it would move the reference. Say so,
+        # rather than claiming everything already uses the target.
+        outside = external_var_paths(root)
+
         if not pending:
+            note = ""
+            if outside:
+                note = (
+                    "\n\n{} path(s) use a variable but point outside "
+                    "the project, so they are consolidation "
+                    "candidates rather than re-token ones."
+                    .format(len(outside)))
             if entries:
                 hou.ui.displayMessage(
-                    "All {} relative path(s) already use {}.".format(
-                        len(entries), var))
+                    "All {} path(s) inside the project already use "
+                    "{}.{}".format(len(entries), var, note))
             else:
                 hou.ui.displayMessage(
-                    "No paths using a variable point inside the project." 
-                    " Hard-coded absolute paths are left alone.")
+                    "No paths using a variable point inside the "
+                    "project. Hard-coded absolute paths are left "
+                    "alone.{}".format(note))
             return
 
         confirm = QtWidgets.QMessageBox.question(
@@ -1334,7 +1408,8 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             self.refs = scan(
                 root,
                 include_missing=not self.hide_missing.isChecked(),
-                prefer_var=self.current_var())
+                prefer_var=self.current_var(),
+                include_internal=self.show_internal.isChecked())
         self._populate()
 
     def _drive_colour(self, drive):
