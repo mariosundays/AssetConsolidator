@@ -22,7 +22,8 @@ cases = [
   True, True, ac.PICK_LIBRARY),   # same drive, /assets/ -> library
  ("F:/FutureDeluxe Dropbox/FD-ALL/MIC2657_WEB_EXP/REVIEWS/Internal/x.jpg",
   True, True, ac.PICK_OUTSIDE),
- ("F:/FD-ALL/MIC2657_WEB_EXP/ASSETS/Common/Houdini_Product_Master/chip/geo",
+ # A path that is genuinely absent is missing...
+ ("F:/FD-ALL/MIC2657_WEB_EXP/ASSETS/Common/Houdini_Product_Master/gone/geo",
   False, False, ac.PICK_MISSING),
  ("C:/Users/artist/AppData/Local/Temp/grab.exr", True, True, ac.PICK_VOLATILE),
  ("C:/Users/artist/Downloads/hdri.exr", True, True, ac.PICK_VOLATILE),

@@ -95,8 +95,22 @@ for you on scan:
 | `shared library` | Same drive, but a shared asset or library folder |
 | `outside project` | Outside the project, nothing else notable |
 | `missing` | Not on disk. Never recommended, never ticked |
+| `folder` | A directory, not a file. Present and fine. Never ticked |
 
 "Select recommended" re-applies that choice at any time.
+
+## Folder references
+
+Some parameters name a **folder** rather than a file. A File Cache in
+*Constructed* mode is the common one: its Base Folder points at a directory
+and the filename is built from Base Name and Version.
+
+Such a path is present and perfectly valid, so it is not missing -- but
+consolidating it means copying a whole tree, which can be tens of gigabytes.
+It is listed as `folder`, shown as type `FOLDER` with the real file count and
+total size, routed by what is inside it (a geo cache folder goes to `geo`, not
+`misc`), and **never ticked for you**. Copying one is always a deliberate
+choice.
 
 ## Colour coding
 

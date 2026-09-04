@@ -85,6 +85,39 @@ def classify(filepath):
     return MISC_FOLDER
 
 
+def classify_folder(folderpath, limit=200):
+    """
+    Which project subfolder a *directory* reference belongs in.
+
+    A folder has no extension of its own, so it is routed by what is in it:
+    whichever destination the files inside vote for most. A geo cache folder
+    belongs in geo, not in misc with the loose odds and ends.
+
+    Only the first `limit` files are sampled -- a cache folder can hold tens
+    of thousands of frames and they are all going to vote the same way.
+    """
+    votes = {}
+    seen = 0
+    try:
+        for folder, _dirnames, filenames in os.walk(folderpath):
+            for name in filenames:
+                target = classify(name)
+                votes[target] = votes.get(target, 0) + 1
+                seen += 1
+                if seen >= limit:
+                    raise StopIteration
+    except StopIteration:
+        pass
+    except OSError:
+        pass
+
+    if not votes:
+        return MISC_FOLDER
+    # Most common wins; ties break toward the named folders over misc.
+    return sorted(votes.items(),
+                  key=lambda kv: (-kv[1], kv[0] == MISC_FOLDER))[0][0]
+
+
 def file_ext(filepath):
     """
     The extension of a path, lower case, without the dot. Compound suffixes
@@ -241,9 +274,10 @@ PICK_NETWORK = "network path"
 PICK_OTHER_DRIVE = "other drive"
 PICK_LIBRARY = "shared library"
 PICK_OUTSIDE = "outside project"
+PICK_FOLDER = "folder"
 
 
-def verdict(resolved, root, exists):
+def verdict(resolved, root, exists, is_dir=False):
     """
     What kind of location this reference lives in, and whether it is
     worth consolidating.
@@ -257,6 +291,12 @@ def verdict(resolved, root, exists):
     """
     if not exists:
         return False, PICK_MISSING
+
+    # A folder reference is valid and present, but consolidating it means
+    # copying a whole tree -- a cache folder can be tens of gigabytes. Never
+    # volunteer that; it has to be an explicit choice.
+    if is_dir:
+        return False, PICK_FOLDER
 
     lowered = (resolved or "").lower()
 
@@ -299,11 +339,16 @@ LOCATION_HELP = {
     PICK_OUTSIDE:
         "Outside the project folder, but otherwise unremarkable.\n"
         "Fine locally, missing for anyone you hand the scene to.",
+    PICK_FOLDER:
+        "A folder, not a file -- a File Cache Base Folder, say.\n"
+        "It exists and is not broken. Consolidating copies the whole tree,\n"
+        "so it is never ticked for you.",
 }
 
 
 # Colour per reason so the column scans quickly.
 PICK_COLOURS = {
+    PICK_FOLDER: "#6bb3ff",
     PICK_MISSING: "#ff6b6b",
     PICK_VOLATILE: "#ff9ec4",
     PICK_NETWORK: "#ffb86b",
@@ -360,18 +405,32 @@ class Reference(object):
         self.prefer_var = prefer_var  # variable the user chose, e.g. "$HIP"
         self.is_seq = is_sequence(resolved)
         self.frames = sequence_glob(resolved) if self.is_seq else []
+        # Some parameters name a FOLDER rather than a file -- File Cache in
+        # "Constructed" mode points its Base Folder at a directory and builds
+        # the filename from Base Name and Version. Such a path is perfectly
+        # valid and present, and calling it missing was wrong.
+        self.is_dir = (not self.is_seq) and os.path.isdir(resolved)
         self.error = ""
 
         # Why this one is worth pulling in, and whether to tick it by default.
-        self.recommend, self.location = verdict(resolved, root, self.exists)
+        self.recommend, self.location = verdict(resolved, root, self.exists,
+                                                self.is_dir)
         self.selected = self.recommend
 
-        self.subfolder = classify(resolved)
+        # A folder has no extension of its own, so it is routed by what is
+        # inside it -- a geo cache folder belongs in geo, not misc.
+        if self.is_dir:
+            self.subfolder = classify_folder(resolved)
+        else:
+            self.subfolder = classify(resolved)
         self.dest_dir = "{}/{}".format(_clean(root), self.subfolder)
         self.dest = "{}/{}".format(self.dest_dir, os.path.basename(resolved))
 
     @property
     def ext_label(self):
+        # A folder has no extension; saying FOLDER is more use than "-".
+        if getattr(self, "is_dir", False):
+            return "FOLDER"
         return ext_label(self.resolved)
 
     @property
@@ -386,12 +445,29 @@ class Reference(object):
     def exists(self):
         if self.is_seq:
             return bool(self.frames)
-        return os.path.isfile(self.resolved)
+        # isfile() alone reports a real, populated directory as missing. A
+        # File Cache Base Folder is exactly that, and "missing" is the one
+        # verdict in this tool that says something is already broken -- so it
+        # has to be right.
+        return os.path.exists(self.resolved)
+
+    @property
+    def dir_files(self):
+        """Every file under a folder reference, recursively."""
+        if not self.is_dir:
+            return []
+        found = []
+        for folder, _dirnames, filenames in os.walk(self.resolved):
+            for name in filenames:
+                found.append(os.path.join(folder, name))
+        return found
 
     @property
     def file_count(self):
         if self.is_seq:
             return len(self.frames)
+        if self.is_dir:
+            return len(self.dir_files)
         return 1 if self.exists else 0
 
     @property
@@ -399,6 +475,14 @@ class Reference(object):
         try:
             if self.is_seq:
                 return sum(os.path.getsize(f) for f in self.frames)
+            if self.is_dir:
+                total = 0
+                for path in self.dir_files:
+                    try:
+                        total += os.path.getsize(path)
+                    except OSError:
+                        pass
+                return total
             return os.path.getsize(self.resolved) if self.exists else 0
         except OSError:
             return 0
@@ -550,6 +634,15 @@ def consolidate(refs, repoint=True, progress=None):
                         continue
                     shutil.copy2(frame, target)
                     copied += 1
+            elif ref.is_dir:
+                # A folder reference (a File Cache Base Folder, say) copies as
+                # a whole tree. copy2 would raise on a directory.
+                target = ref.dest
+                if os.path.isdir(target):
+                    target = _unique_dest(target)
+                shutil.copytree(ref.resolved, target)
+                ref.dest = target
+                copied += ref.file_count
             else:
                 target = ref.dest
                 if os.path.exists(target) and _same_file(ref.resolved, target):
