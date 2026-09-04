@@ -38,24 +38,33 @@ PARMS[:] = [
     Parm("/obj/d","map","E:/lib/outside.exr",     "E:/lib/outside.exr"),
 ]
 
-print("=== find_internal only sees paths under the root ===")
-internal = ac.find_internal(ROOT)
-check("3 internal, external excluded", len(internal), 3)
+print("=== leading_var ===")
+for raw, want in [("$HIP/tex/a.exr","$HIP"), ("$JOB/tex/a.exr","$JOB"),
+                  ("${HIP}/tex/a.exr","$HIP"), ("$hip/a.exr","$HIP"),
+                  ("F:/proj/tex/a.exr",""), ("tex/a.exr",""),
+                  ("",""), ("$HIP","$HIP")]:
+    check(repr(raw), ac.leading_var(raw), want)
 
-print("\n=== rewrite everything to $HIP ===")
+print("\n=== find_internal skips hard-coded absolute paths ===")
+internal = ac.find_internal(ROOT)
+check("only the 2 relative ones", len(internal), 2)
+check("no absolute path included",
+      any(e[1].startswith("F:/") for e in internal), False)
+
+print("\n=== rewrite only touches already-relative paths ===")
 changed, skipped, errors = ac.retoken_paths(ROOT, "$HIP")
 check("no errors", errors, [])
 check("$JOB path rewritten", PARMS[0].value, "$HIP/tex/wood.exr")
-check("absolute path rewritten", PARMS[1].value, "$HIP/tex/metal.exr")
+check("ABSOLUTE path left alone", PARMS[1].value, ROOT+"/tex/metal.exr")
 check("already $HIP left alone", PARMS[2].value, "$HIP/geo/cache.bgeo.sc")
 check("outside project untouched", PARMS[3].value, "E:/lib/outside.exr")
-check("changed count", changed, 2)
+check("changed count", changed, 1)
 check("skipped count", skipped, 1)
 
 print("\n=== idempotent: running again changes nothing ===")
 changed2, skipped2, _ = ac.retoken_paths(ROOT, "$HIP")
 check("second run changes 0", changed2, 0)
-check("second run skips 3", skipped2, 3)
+check("second run skips 2", skipped2, 2)
 
 print("\n=== sequences keep their frame token ===")
 os.environ["HIP"]=ROOT
@@ -69,6 +78,15 @@ os.environ["SHOW"]=ROOT
 PARMS[:] = [Parm("/obj/a","map","$HIP/tex/a.exr", ROOT+"/tex/a.exr")]
 ac.retoken_paths(ROOT, "$SHOW")
 check("rewritten to $SHOW", PARMS[0].value, "$SHOW/tex/a.exr")
+
+print("\n=== a scene of only absolute paths is left entirely alone ===")
+PARMS[:] = [Parm("/obj/a","map",ROOT+"/tex/a.exr", ROOT+"/tex/a.exr"),
+            Parm("/obj/b","map",ROOT+"/tex/b.exr", ROOT+"/tex/b.exr")]
+os.environ["HIP"]=ROOT
+changed4, skipped4, errors4 = ac.retoken_paths(ROOT, "$HIP")
+check("nothing changed", changed4, 0)
+check("first still absolute", PARMS[0].value, ROOT+"/tex/a.exr")
+check("second still absolute", PARMS[1].value, ROOT+"/tex/b.exr")
 
 print("\n=== locked parm reported, not silently skipped ===")
 class Locked(Parm):

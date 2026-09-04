@@ -65,11 +65,16 @@ Changes the variable on paths that are **already inside the project**, without
 copying anything. Use it when a scene was consolidated with the wrong token, or
 to make a mixed scene consistent.
 
-It works from each path's resolved location rather than string-replacing the
-old token, so `$JOB/tex/a.exr`, a bare `F:/proj/shot01/tex/a.exr` and
-`$HIPNAME`-based paths all end up as `$HIP/tex/a.exr`. Sequences keep their
-frame token, files outside the project are left alone, and running it twice
-changes nothing the second time.
+Only paths that **already use a variable** are touched: `$JOB/tex/a.exr`
+becomes `$HIP/tex/a.exr`. Hard-coded absolute paths are deliberately left
+alone -- turning one into a variable is a different decision from swapping one
+variable for another, and doing it silently would rewrite paths you never
+asked to touch.
+
+The new value is rebuilt from each path's resolved location rather than by
+string-replacing the old token, so any variable converges on the one you pick.
+Sequences keep their frame token, files outside the project are left alone,
+and running it twice changes nothing the second time.
 
 ## Destination routing
 

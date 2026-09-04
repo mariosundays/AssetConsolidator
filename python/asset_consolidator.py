@@ -681,12 +681,26 @@ def consolidate(refs, repoint=True, progress=None):
 # Re-tokenising paths that are already inside the project
 # ---------------------------------------------------------------------------
 
+def leading_var(raw):
+    """
+    The variable a path starts with, e.g. "$HIP" for "$HIP/tex/a.exr".
+
+    Returns "" for a bare absolute path. Used to tell an already-relative
+    path from a hard-coded one -- only the former gets re-tokenised.
+    """
+    raw = (raw or "").strip().replace("\\", "/")
+    match = re.match(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?(?=/|$)", raw)
+    return "$" + match.group(1).upper() if match else ""
+
+
 def find_internal(root):
     """
-    Every file parameter already pointing inside the project.
+    File parameters inside the project that already use a variable.
 
-    These are not consolidation candidates -- the files are where they should
-    be. They are the ones whose variable can be swapped.
+    Bare absolute paths are deliberately excluded: turning a hard-coded path
+    into a variable is a different decision from swapping one variable for
+    another, and doing it silently would rewrite paths the user never asked
+    to touch.
     """
     root = _clean(root)
     found = []
@@ -714,6 +728,8 @@ def find_internal(root):
             continue
         if not is_inside(resolved, root):
             continue
+        if not leading_var(raw):
+            continue  # hard-coded path, not ours to re-tokenise
         found.append((parm, raw, resolved))
 
     return found
@@ -721,11 +737,13 @@ def find_internal(root):
 
 def retoken_paths(root, target_var, progress=None):
     """
-    Rewrite every already-internal path to use `target_var`.
+    Rewrite already-relative internal paths to use `target_var`.
 
-    Works on the resolved path rather than string-replacing the old token, so
-    it does not matter whether the parameter currently uses $JOB, $HIP, a
-    different variable or a bare absolute path -- they all end up consistent.
+    Only paths that already start with a variable are touched -- a $JOB path
+    becomes a $HIP one. Hard-coded absolute paths are left alone.
+
+    The new value is rebuilt from the resolved location rather than by
+    string-replacing the old token, so any variable converges on the target.
 
     Returns (changed, skipped, errors).
     """
@@ -937,8 +955,9 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
         self.update_btn = QtWidgets.QPushButton("Update paths in scene")
         self.update_btn.setToolTip(
-            "Rewrite every path already inside the project to use this\n"
-            "variable. Copies nothing -- only the token changes.")
+            "Rewrite paths that already use a variable and point inside\n"
+            "the project so they use this one instead. Copies nothing,\n"
+            "and leaves hard-coded absolute paths alone.")
         self.update_btn.clicked.connect(self._retoken)
         var_row.addWidget(self.update_btn)
         layout.addLayout(var_row)
@@ -1071,14 +1090,29 @@ class ConsolidatorDialog(QtWidgets.QDialog):
                 "<span style='color:#7ee787'>{} = {}</span>".format(var, value))
             self.update_btn.setEnabled(True)
 
-        # Destinations are shown with this token, so redraw them.
+        # Destinations are shown with this token, so redraw them. Block
+        # signals and sorting first: setText would otherwise fire
+        # itemChanged and, with sorting on, reorder rows mid-update.
         for ref in self.refs:
             ref.prefer_var = var
-        for row in range(self.table.rowCount()):
-            ref = self._ref_at(row)
-            item = self.table.item(row, COL_DEST)
-            if ref is not None and item is not None:
-                item.setText(ref.dest_relative())
+
+        self.table.blockSignals(True)
+        was_sorting = self.table.isSortingEnabled()
+        self.table.setSortingEnabled(False)
+        try:
+            for row in range(self.table.rowCount()):
+                ref = self._ref_at(row)
+                item = self.table.item(row, COL_DEST)
+                if ref is not None and item is not None:
+                    item.setText(ref.dest_relative())
+                    item.setToolTip(
+                        "Type folder: {}\nAbsolute:\n{}".format(
+                            ref.subfolder, ref.dest))
+        finally:
+            self.table.setSortingEnabled(was_sorting)
+            self.table.blockSignals(False)
+
+        self._update_repoint_label()
 
     def _retoken(self):
         """Swap the variable on every path already inside the project."""
@@ -1086,22 +1120,30 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         root = _clean(self.root_field.text())
 
         entries = find_internal(root)
-        if not entries:
-            hou.ui.displayMessage(
-                "No paths inside the project to update.")
+        pending = [e for e in entries if leading_var(e[1]) != var]
+        if not pending:
+            if entries:
+                hou.ui.displayMessage(
+                    "All {} relative path(s) already use {}.".format(
+                        len(entries), var))
+            else:
+                hou.ui.displayMessage(
+                    "No paths using a variable point inside the project." 
+                    " Hard-coded absolute paths are left alone.")
             return
 
         confirm = QtWidgets.QMessageBox.question(
             self, "Update paths in scene",
-            "Rewrite {} path(s) already inside the project to use "
-            "{}?\n\nNo files are copied or moved -- only the variable "
-            "changes.".format(len(entries), var),
+            "Rewrite {} path(s) to use {}?\n\n"
+            "These already use a variable and point inside the project. "
+            "No files are copied or moved, and hard-coded absolute "
+            "paths are left alone.".format(len(pending), var),
             QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
         if confirm != QtWidgets.QMessageBox.Ok:
             return
 
         dialog = QtWidgets.QProgressDialog(
-            "Updating paths...", "Cancel", 0, len(entries), self)
+            "Updating paths...", "Cancel", 0, len(pending), self)
         dialog.setWindowModality(Qt.WindowModal)
         dialog.setMinimumDuration(0)
 
@@ -1113,7 +1155,7 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
         with hou.undos.group("Update paths to {}".format(var)):
             changed, skipped, errors = retoken_paths(root, var, progress)
-        dialog.setValue(len(entries))
+        dialog.setValue(len(pending))
 
         summary = "Updated {} path(s) to {}.".format(changed, var)
         if skipped:
