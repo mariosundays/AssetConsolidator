@@ -51,8 +51,12 @@ The field validates as you type:
 | Shown | Meaning |
 |---|---|
 | green `$HIP = F:/proj/shot01` | Resolves to the project root, good to use |
-| orange `$JOB points at F:/proj` | Set, but to a different folder |
-| red `$SHOT is not set` | Not defined in this session |
+| orange `$JOB is F:/proj -- not the project root, so $HIP is used` | Set, but to a different folder |
+| red `$SHOT is not set -- using $HIP` | Not defined in this session |
+
+When a variable points somewhere other than the root, a **Use \<var\> as root**
+button appears next to it. Clicking it moves the project root to that folder,
+which is usually what you wanted if you picked the variable deliberately.
 
 A variable that does not resolve to the root is never written -- the tool falls
 back to whichever known variable does, and to an absolute path if none match.

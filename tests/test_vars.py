@@ -66,5 +66,19 @@ changed,skipped,errors = ac.retoken_paths(ROOT, "$JOB")
 check("nothing changed", changed, 0)
 check("error explains why", len(errors), 1)
 
+print("\n=== real case: $JOB is an ANCESTOR of the project root ===")
+REAL_ROOT = "F:/FD/DESIGN/MarioD/HD/MIC2657/MIC2657_performance"
+REAL_JOB = "F:/FD/DESIGN/MarioD/HD"
+os.environ["HIP"] = REAL_ROOT
+os.environ["JOB"] = REAL_JOB
+check("$JOB not usable (points higher up)",
+      ac.var_is_usable("$JOB", REAL_ROOT), False)
+check("choosing $JOB still yields $HIP",
+      ac.root_token(REAL_ROOT, "$JOB"), "$HIP")
+check("$JOB usable once the root matches it",
+      ac.var_is_usable("$JOB", REAL_JOB), True)
+check("and then $JOB is written",
+      ac.root_token(REAL_JOB, "$JOB"), "$JOB")
+
 print("\n"+("ALL PASS" if not fails else f"{len(fails)} FAILURES:\n"+"\n".join(fails)))
 sys.exit(1 if fails else 0)

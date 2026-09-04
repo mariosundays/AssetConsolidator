@@ -884,6 +884,7 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         self._drive_map = {}   # drive label -> colour, stable per session
         self._suppress_fit_all = False  # guards the double-signal above
         self._did_initial_fit = False
+        self._pending_root = ""
         self._user_sized = False    # true once a column is dragged
         self._applying_fit = False  # guards our own width changes
         self._build_ui()
@@ -952,6 +953,14 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
         self.var_status = QtWidgets.QLabel("")
         var_row.addWidget(self.var_status, 1)
+
+        self.use_root_btn = QtWidgets.QPushButton("")
+        self.use_root_btn.setVisible(False)
+        self.use_root_btn.setToolTip(
+            "Set the project root to this variable's folder, so the "
+            "variable can be used.")
+        self.use_root_btn.clicked.connect(self._use_var_as_root)
+        var_row.addWidget(self.use_root_btn)
 
         self.update_btn = QtWidgets.QPushButton("Update paths in scene")
         self.update_btn.setToolTip(
@@ -1073,18 +1082,27 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         root = _clean(self.root_field.text())
         value = var_value(var)
 
+        actual = root_token(root, var)
+        self.use_root_btn.setVisible(False)
+
         if not var:
             self.var_status.setText("")
             self.update_btn.setEnabled(False)
         elif not value:
             self.var_status.setText(
-                "<span style='color:#ff6b6b'>{} is not set</span>".format(var))
+                "<span style='color:#ff6b6b'>{} is not set -- using "
+                "{}</span>".format(var, actual))
             self.update_btn.setEnabled(False)
         elif value.lower() != root.lower():
+            # Say plainly that the choice was refused and what is used
+            # instead, otherwise the destination column looks stuck.
             self.var_status.setText(
-                "<span style='color:#ffb86b'>{} points at {}</span>".format(
-                    var, value))
+                "<span style='color:#ffb86b'>{} is {} -- not the project "
+                "root, so {} is used</span>".format(var, value, actual))
             self.update_btn.setEnabled(False)
+            self.use_root_btn.setText("Use {} as root".format(var))
+            self.use_root_btn.setVisible(True)
+            self._pending_root = value
         else:
             self.var_status.setText(
                 "<span style='color:#7ee787'>{} = {}</span>".format(var, value))
@@ -1113,6 +1131,14 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             self.table.blockSignals(False)
 
         self._update_repoint_label()
+
+    def _use_var_as_root(self):
+        """Adopt the chosen variable's folder as the project root."""
+        target = getattr(self, "_pending_root", "")
+        if target:
+            self.root_field.setText(target)
+            self.refresh()
+            self._on_var_changed(self.var_box.currentText())
 
     def _retoken(self):
         """Swap the variable on every path already inside the project."""
