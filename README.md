@@ -121,6 +121,23 @@ total size, routed by what is inside it (a geo cache folder goes to `geo`, not
 `misc`), and **never ticked for you**. Copying one is always a deliberate
 choice.
 
+## Sending files to a custom folder
+
+Select any rows, right-click, **Send N rows to a folder...** and browse. Those
+files go where you chose instead of the type routing; everything else is
+unaffected. **Reset to default destination** puts them back.
+
+The destination cell turns purple for a custom folder, and orange when that
+folder is outside the project.
+
+A custom folder **inside** the project still gets a variable, so the scene
+stays portable: choosing `$HIP/textures/bark` writes
+`$HIP/textures/bark/wood.exr`. A folder **outside** it cannot -- no token
+resolves there -- so the parameter gets an absolute path and the tool warns you
+once, when you pick it. That is a real trade-off, not a bug: sending caches to
+a fast local drive is a legitimate thing to want, and it does mean the scene
+will not open correctly elsewhere.
+
 ## Colour coding
 
 Source paths are tinted **per drive**, assigned in first-seen order so any
@@ -149,6 +166,7 @@ row ticked. "Add to selection" is there when you want the additive version.
 - **Consolidate this file now** -- copies just that one file, whatever is
   ticked. With several rows selected you also get "Consolidate these N files".
   Both sit at the top of the menu.
+- **Send N rows to a folder...** / Reset to default destination
 - Select only these rows / Add to selection / Deselect these rows
 - Select only what is on the same **drive**
 - Select only files of the same **extension**

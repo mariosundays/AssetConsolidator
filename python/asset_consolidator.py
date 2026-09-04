@@ -423,8 +423,42 @@ class Reference(object):
             self.subfolder = classify_folder(resolved)
         else:
             self.subfolder = classify(resolved)
-        self.dest_dir = "{}/{}".format(_clean(root), self.subfolder)
-        self.dest = "{}/{}".format(self.dest_dir, os.path.basename(resolved))
+
+        # A folder chosen by the user for this reference, overriding the
+        # type routing. Empty means "route by type" as usual.
+        self.custom_dir = ""
+
+        # dest_dir/dest are properties so an override takes effect without
+        # rebuilding the reference.
+        self.dest_name = os.path.basename(resolved)
+
+    @property
+    def dest_dir(self):
+        """Folder the file will be copied into."""
+        if self.custom_dir:
+            return _clean(self.custom_dir)
+        return "{}/{}".format(_clean(self.root), self.subfolder)
+
+    @property
+    def dest(self):
+        """Full destination path."""
+        return "{}/{}".format(self.dest_dir, self.dest_name)
+
+    @dest.setter
+    def dest(self, value):
+        """consolidate() rewrites this when a name collision is renamed."""
+        value = _clean(value)
+        self.custom_dir = os.path.dirname(value)
+        self.dest_name = os.path.basename(value)
+
+    @property
+    def is_custom(self):
+        return bool(self.custom_dir)
+
+    @property
+    def dest_inside_project(self):
+        """False when the chosen folder sits outside the project root."""
+        return is_inside(self.dest_dir, self.root)
 
     @property
     def ext_label(self):
@@ -488,8 +522,29 @@ class Reference(object):
             return 0
 
     def dest_relative(self):
-        """The root-relative path we will write back into the parameter."""
-        name = os.path.basename(self.raw.replace("\\", "/"))
+        """
+        The value written back into the parameter.
+
+        A custom folder inside the project still gets a variable, so the
+        scene stays portable. One outside it cannot -- there is no token
+        that resolves there -- so it gets an absolute path.
+        """
+        # Use dest_name, not raw: a collision rename lands there, and the
+        # parameter has to follow the file we actually wrote. For a sequence
+        # keep raw's frame token, which dest_name has resolved to a frame.
+        raw_name = os.path.basename(self.raw.replace("\\", "/"))
+        name = raw_name if is_sequence(raw_name) else self.dest_name
+
+        if self.custom_dir:
+            folder = _clean(self.custom_dir)
+            if is_inside(folder, self.root):
+                token = root_token(self.root, self.prefer_var)
+                relative = folder[len(_clean(self.root)):].strip("/")
+                if relative:
+                    return "{}/{}/{}".format(token, relative, name)
+                return "{}/{}".format(token, name)
+            return "{}/{}".format(folder, name)
+
         return "{}/{}/{}".format(
             root_token(self.root, self.prefer_var), self.subfolder, name)
 
@@ -1108,12 +1163,58 @@ class ConsolidatorDialog(QtWidgets.QDialog):
                 "<span style='color:#7ee787'>{} = {}</span>".format(var, value))
             self.update_btn.setEnabled(True)
 
-        # Destinations are shown with this token, so redraw them. Block
-        # signals and sorting first: setText would otherwise fire
-        # itemChanged and, with sorting on, reorder rows mid-update.
+        # Destinations are shown with this token, so redraw them.
         for ref in self.refs:
             ref.prefer_var = var
+        self._refresh_destinations()
 
+        self._update_repoint_label()
+
+    def _set_custom_dir(self, rows):
+        """Point the given rows at a folder the user picks."""
+        refs = [r for r in (self._ref_at(x) for x in rows) if r is not None]
+        if not refs:
+            return
+
+        start = refs[0].dest_dir or _clean(self.root_field.text())
+        chosen = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Copy {} file(s) into".format(len(refs)), start)
+        if not chosen:
+            return
+
+        chosen = _clean(chosen)
+        for ref in refs:
+            ref.custom_dir = chosen
+
+        outside = [r for r in refs if not r.dest_inside_project]
+        if outside:
+            QtWidgets.QMessageBox.warning(
+                self, "Outside the project",
+                "{}\n\nis outside the project root, so {} parameter(s) will "
+                "be written as absolute paths rather than {}-relative ones. "
+                "The scene will not be portable for those "
+                "files.".format(chosen, len(outside),
+                                root_token(_clean(self.root_field.text()),
+                                           self.current_var())))
+
+        self._refresh_destinations()
+
+    def _clear_custom_dir(self, rows):
+        """Put the given rows back on the normal type routing."""
+        for row in rows:
+            ref = self._ref_at(row)
+            if ref is not None:
+                ref.custom_dir = ""
+                ref.dest_name = os.path.basename(ref.resolved)
+        self._refresh_destinations()
+
+    def _refresh_destinations(self):
+        """
+        Redraw the destination column in place.
+
+        Signals and sorting are suspended: setText would otherwise fire
+        itemChanged, and with sorting on Qt can reorder rows mid-update.
+        """
         self.table.blockSignals(True)
         was_sorting = self.table.isSortingEnabled()
         self.table.setSortingEnabled(False)
@@ -1121,16 +1222,33 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             for row in range(self.table.rowCount()):
                 ref = self._ref_at(row)
                 item = self.table.item(row, COL_DEST)
-                if ref is not None and item is not None:
-                    item.setText(ref.dest_relative())
-                    item.setToolTip(
-                        "Type folder: {}\nAbsolute:\n{}".format(
-                            ref.subfolder, ref.dest))
+                if ref is None or item is None:
+                    continue
+                item.setText(ref.dest_relative())
+                item.setForeground(QtGui.QColor(self._dest_colour(ref)))
+                item.setToolTip(self._dest_tooltip(ref))
         finally:
             self.table.setSortingEnabled(was_sorting)
             self.table.blockSignals(False)
+        self._update_status()
 
-        self._update_repoint_label()
+    def _dest_colour(self, ref):
+        """Custom destinations stand out; outside-the-project warns."""
+        if not ref.exists:
+            return MISSING_COLOUR
+        if ref.is_custom:
+            return "#ffb86b" if not ref.dest_inside_project else "#d2a8ff"
+        return TYPE_COLOURS.get(ref.subfolder, TYPE_COLOURS["misc"])
+
+    def _dest_tooltip(self, ref):
+        if ref.is_custom:
+            note = ("Custom folder.\n"
+                    if ref.dest_inside_project else
+                    "Custom folder, OUTSIDE the project -- the parameter will "
+                    "be an absolute path.\n")
+            return "{}Absolute:\n{}".format(note, ref.dest)
+        return "Type folder: {}\nAbsolute:\n{}".format(
+            ref.subfolder, ref.dest)
 
     def _use_var_as_root(self):
         """Adopt the chosen variable's folder as the project root."""
@@ -1395,10 +1513,8 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
             # Destination, tinted per type folder.
             dest_item = QtWidgets.QTableWidgetItem(ref.dest_relative())
-            dest_item.setForeground(QtGui.QColor(
-                TYPE_COLOURS.get(ref.subfolder, TYPE_COLOURS["misc"])))
-            dest_item.setToolTip("Type folder: {}\nAbsolute:\n{}".format(
-                ref.subfolder, ref.dest))
+            dest_item.setForeground(QtGui.QColor(self._dest_colour(ref)))
+            dest_item.setToolTip(self._dest_tooltip(ref))
             self.table.setItem(row, COL_DEST, dest_item)
 
             # Missing files override every other colour and cannot be selected.
@@ -1511,6 +1627,17 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         if rows:
             count = len(rows)
             plural = "s" if count != 1 else ""
+
+            act_custom = menu.addAction(
+                "Send {} row{} to a folder...".format(count, plural))
+            act_custom.triggered.connect(lambda: self._set_custom_dir(rows))
+
+            if any(r is not None and r.is_custom
+                   for r in (self._ref_at(x) for x in rows)):
+                act_reset = menu.addAction("Reset to default destination")
+                act_reset.triggered.connect(
+                    lambda: self._clear_custom_dir(rows))
+            menu.addSeparator()
 
             act_only = menu.addAction(
                 "Select only {} row{}".format(count, plural))
