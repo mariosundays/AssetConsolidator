@@ -1,8 +1,7 @@
 # docs
 
-Screenshots used by the top-level README.
-
-| File | Shows |
+| File | What it is |
 |---|---|
-| `screenshot-main.png` | The main window: table, Why column, colour coding |
+| `HOUDINI_NOTES.md` | Scene-walking, path and Qt lessons from building this tool. For anyone writing a sibling tool |
+| `screenshot-main.png` | The main window: table, Location column, colour coding |
 | `screenshot-menu.png` | The right-click menu open on a row |

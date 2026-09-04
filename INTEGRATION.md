@@ -22,6 +22,9 @@ The dependency points one way. This tool knows nothing about Scene Optimizer
 and never needs to -- but if you change one of the things below, that panel
 stops reporting external and missing files correctly.
 
+Building one of these? [docs/HOUDINI_NOTES.md](docs/HOUDINI_NOTES.md) has the
+scene-walking and Qt lessons from this tool, which apply to all three.
+
 ## What Scene Optimizer reads from this tool
 
 | It calls | For |

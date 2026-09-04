@@ -186,6 +186,16 @@ Working and in use, but young. The scanning, routing and selection logic is
 covered by unit tests; the copy step has been tested on synthetic files rather
 than years of production scenes. Try it on a copy of a scene first.
 
+## Notes for other tools
+
+[docs/HOUDINI_NOTES.md](docs/HOUDINI_NOTES.md) collects what was learned
+building this: how to walk a scene for file parameters, the raw-vs-resolved
+distinction, variable handling, and the Qt table traps. Written for anyone
+building a sibling tool that scans a scene for paths.
+
+[INTEGRATION.md](INTEGRATION.md) documents the small API surface other tools
+call, and what changes would break them.
+
 ## Licence
 
 GPL-3.0. See [LICENSE](LICENSE).
