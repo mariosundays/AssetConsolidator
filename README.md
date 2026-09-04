@@ -222,6 +222,8 @@ Working and in use on real production scenes. The scanning, routing, variable
 and selection logic is covered by 13 test suites that run without Houdini; the
 copy step has been exercised on real shots as well as synthetic fixtures.
 
+Release notes are in [CHANGELOG.md](CHANGELOG.md).
+
 Still worth running on a copy of a scene the first time, and the repoint
 checkbox can be turned off for a dry run that copies without touching any
 parameter.
