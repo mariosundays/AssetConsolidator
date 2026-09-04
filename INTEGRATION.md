@@ -9,8 +9,8 @@ this repo.
 | Tool | Job | Repo |
 |---|---|---|
 | **Asset Consolidator** | Pulls outside files into the project | this one |
-| [Asset Cleaner](../AssetCleaner) | Finds what nothing uses and moves it out | its own |
-| [Scene Optimizer](../SceneOptimizer) | Reports on both and launches them | its own |
+| [Asset Cleaner](https://github.com/mariosundays/AssetCleaner) | Finds what nothing uses and moves it out | its own |
+| [Scene Optimizer](https://github.com/mariosundays/SceneOptimizer) | Reports on both and launches them | its own |
 
 ```
 Asset Cleaner ─────┐
