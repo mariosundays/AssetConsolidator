@@ -1749,6 +1749,10 @@ class ConsolidatorDialog(QtWidgets.QDialog):
                     lambda r: os.path.dirname(r.resolved) == folder)))
             menu.addSeparator()
 
+            act_goto = menu.addAction("Go to this node")
+            act_goto.triggered.connect(lambda: self._go_to_node(ref))
+            menu.addSeparator()
+
             act_copy = menu.addAction("Copy path")
             act_copy.triggered.connect(
                 lambda: QtWidgets.QApplication.clipboard().setText(
@@ -1826,10 +1830,22 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             self._update_status()
 
     def _on_double_click(self, item):
-        ref = self._ref_at(item.row())
+        self._go_to_node(self._ref_at(item.row()))
+
+    def _go_to_node(self, ref):
+        """
+        Select the node in the scene and frame it in the network editor.
+
+        Shared by the double-click and the right-click entry, so both land in
+        the same place.
+        """
         if ref is None:
             return
-        node = ref.parm.node()
+        try:
+            node = ref.parm.node()
+        except Exception:
+            return
+
         try:
             node.setCurrent(True, clear_all_selected=True)
             for pane in hou.ui.paneTabs():

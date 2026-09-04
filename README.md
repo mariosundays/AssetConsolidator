@@ -188,6 +188,8 @@ row ticked. "Add to selection" is there when you want the additive version.
 - Select only the same kind of **location**
 - **Open with default app** -- opens the file in whatever the OS
   associates with its type (the first frame, for a sequence)
+- **Go to this node** -- selects it and frames it in the network editor
+  (double-clicking a row does the same)
 - Copy path, Show in Explorer, Fit columns
 
 Right-clicking a row outside the current selection acts on that row, the way a
