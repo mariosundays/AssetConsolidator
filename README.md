@@ -32,19 +32,44 @@ Nothing is copied until you press the button, and nothing is ever overwritten.
 
 ## Project root
 
-`$HIP` -- the folder holding the open `.hip` file. `$JOB` is used instead when
-it is set to a real folder *and* the `.hip` sits underneath it. The root is
-shown at the top of the window and can be overridden with Browse.
+`$HIP` -- the folder holding the open `.hip` file. Shown at the top of the
+window and overridable with Browse.
 
-### Why $HIP and not $JOB
-
-`$HIP` is always defined and always correct, because Houdini sets it from the
+`$HIP` is the default because it is always defined and always correct for the
 open scene. `$JOB` has to be set per session, and when it is not it silently
-falls back to the user home folder -- so a "portable" path resolves only on the
+falls back to the user home folder, so a "portable" path resolves only on the
 machine that wrote it.
 
-If you Browse to a root that is neither `$HIP` nor `$JOB`, the tool writes an
-absolute path rather than a token that would point somewhere wrong.
+## Choosing the variable
+
+The **Use variable** field decides which token gets written into consolidated
+paths. `$HIP` and `$JOB` are offered, and the field is editable, so a studio
+variable (`$SHOT`, `$SHOW`, anything Houdini defines) can be typed instead.
+
+The field validates as you type:
+
+| Shown | Meaning |
+|---|---|
+| green `$HIP = F:/proj/shot01` | Resolves to the project root, good to use |
+| orange `$JOB points at F:/proj` | Set, but to a different folder |
+| red `$SHOT is not set` | Not defined in this session |
+
+A variable that does not resolve to the root is never written -- the tool falls
+back to whichever known variable does, and to an absolute path if none match.
+A token that points somewhere else is worse than an absolute path: it looks
+tidy and silently loads the wrong file.
+
+### Update paths in scene
+
+Changes the variable on paths that are **already inside the project**, without
+copying anything. Use it when a scene was consolidated with the wrong token, or
+to make a mixed scene consistent.
+
+It works from each path's resolved location rather than string-replacing the
+old token, so `$JOB/tex/a.exr`, a bare `F:/proj/shot01/tex/a.exr` and
+`$HIPNAME`-based paths all end up as `$HIP/tex/a.exr`. Sequences keep their
+frame token, files outside the project are left alone, and running it twice
+changes nothing the second time.
 
 ## Destination routing
 

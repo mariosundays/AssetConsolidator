@@ -138,45 +138,70 @@ def _clean(path):
 
 def project_root():
     """
-    Resolve the project root: the folder holding the current .hip file.
+    The project root: the folder holding the current .hip file ($HIP).
 
-    $HIP is preferred over $JOB because Houdini always defines it and it is
-    always correct for the open scene. $JOB has to be set per session and
-    silently falls back to the user home folder when it is not, which turns
-    a "portable" path into one that only resolves on the machine that wrote
-    it. $JOB is still used when it is set to something real AND the .hip
-    lives underneath it, since that is a deliberately configured project.
+    $HIP is always defined and always correct for the open scene, whereas
+    $JOB has to be set per session and silently falls back to the user home
+    folder when it is not. Use the variable field in the UI to consolidate
+    against $JOB or any other variable instead.
     """
     hip = _clean(hou.getenv("HIP") or "")
-    job = _clean(hou.getenv("JOB") or "")
-
-    if job and os.path.isdir(job):
-        default_job = _clean(os.path.join(
-            os.path.expanduser("~"), "houdini_projects"))
-        if job.lower() != default_job.lower() and hip and is_inside(hip, job):
-            return job
-
-    return hip or job
+    return hip or _clean(hou.getenv("JOB") or "")
 
 
-def root_token(root):
+# Variables offered in the dropdown. Any other Houdini variable can be typed.
+COMMON_VARS = ("$HIP", "$JOB")
+
+
+def normalise_var(text):
+    """Accept HIP, $HIP, ${HIP} or hip and return "$HIP"."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    text = text.strip("${}").strip()
+    return "$" + text.upper() if text else ""
+
+
+def var_value(var):
+    """The folder a variable points at, or "" when it is not set."""
+    name = normalise_var(var).lstrip("$")
+    if not name:
+        return ""
+    return _clean(hou.getenv(name) or "")
+
+
+def var_is_usable(var, root):
     """
-    The Houdini variable to write into repointed parameters for this root.
+    True when writing this variable would actually resolve back to root.
 
-    Matching the token to the folder the user actually chose matters: if they
-    browse to somewhere that is neither $HIP nor $JOB, writing "$HIP/..."
-    would point the parameter at the wrong place entirely. In that case we
-    fall back to the absolute path, which is at least correct.
+    A token that points somewhere else is worse than an absolute path: the
+    parameter looks tidy and silently loads the wrong file, or nothing.
+    """
+    value = var_value(var)
+    return bool(value) and value.lower() == _clean(root).lower()
+
+
+def root_token(root, prefer=None):
+    """
+    The token to write into repointed parameters for this root.
+
+    `prefer` is the variable the user picked. It is used when it genuinely
+    resolves to root; otherwise we fall back to whichever known variable
+    matches, and finally to the absolute path, which is at least correct.
     """
     root = _clean(root)
     if not root:
         return ""
-    hip = _clean(hou.getenv("HIP") or "")
-    job = _clean(hou.getenv("JOB") or "")
-    if hip and root.lower() == hip.lower():
-        return "$HIP"
-    if job and root.lower() == job.lower():
-        return "$JOB"
+
+    if prefer:
+        prefer = normalise_var(prefer)
+        if var_is_usable(prefer, root):
+            return prefer
+
+    for candidate in COMMON_VARS:
+        if var_is_usable(candidate, root):
+            return candidate
+
     return root
 
 
@@ -327,11 +352,12 @@ def sequence_glob(path):
 class Reference(object):
     """One external file reference found on one parameter."""
 
-    def __init__(self, parm, raw, resolved, root):
+    def __init__(self, parm, raw, resolved, root, prefer_var=None):
         self.parm = parm
         self.raw = raw                # unexpanded parm value
         self.resolved = resolved      # expanded, absolute
         self.root = root
+        self.prefer_var = prefer_var  # variable the user chose, e.g. "$HIP"
         self.is_seq = is_sequence(resolved)
         self.frames = sequence_glob(resolved) if self.is_seq else []
         self.error = ""
@@ -380,7 +406,8 @@ class Reference(object):
     def dest_relative(self):
         """The root-relative path we will write back into the parameter."""
         name = os.path.basename(self.raw.replace("\\", "/"))
-        return "{}/{}/{}".format(root_token(self.root), self.subfolder, name)
+        return "{}/{}/{}".format(
+            root_token(self.root, self.prefer_var), self.subfolder, name)
 
 
 def _iter_file_parms():
@@ -407,7 +434,7 @@ def _iter_file_parms():
             yield parm
 
 
-def scan(root=None, include_missing=True):
+def scan(root=None, include_missing=True, prefer_var=None):
     """
     Walk the scene and return a list of Reference objects for every file
     parameter pointing outside the project root.
@@ -456,7 +483,7 @@ def scan(root=None, include_missing=True):
             continue
         seen.add(key)
 
-        ref = Reference(parm, raw, resolved, root)
+        ref = Reference(parm, raw, resolved, root, prefer_var)
         if not ref.exists and not include_missing:
             continue
         found.append(ref)
@@ -544,7 +571,8 @@ def consolidate(refs, repoint=True, progress=None):
                     # Keep the original frame token, only swap the directory.
                     token = os.path.basename(ref.raw.replace("\\", "/"))
                     new_value = "{}/{}/{}".format(
-                        root_token(ref.root), ref.subfolder, token)
+                        root_token(ref.root, ref.prefer_var),
+                        ref.subfolder, token)
                 ref.parm.set(new_value)
             except hou.PermissionError as exc:
                 errors.append("{}  locked, not repointed: {}".format(
@@ -554,6 +582,103 @@ def consolidate(refs, repoint=True, progress=None):
                     ref.node_path, exc))
 
     return copied, skipped, errors
+
+
+# ---------------------------------------------------------------------------
+# Re-tokenising paths that are already inside the project
+# ---------------------------------------------------------------------------
+
+def find_internal(root):
+    """
+    Every file parameter already pointing inside the project.
+
+    These are not consolidation candidates -- the files are where they should
+    be. They are the ones whose variable can be swapped.
+    """
+    root = _clean(root)
+    found = []
+
+    for parm in _iter_file_parms():
+        try:
+            raw = parm.unexpandedString()
+        except Exception:
+            continue
+        if not raw or not raw.strip():
+            continue
+        try:
+            if parm.keyframes():
+                continue
+        except Exception:
+            pass
+        try:
+            resolved = _clean(parm.eval())
+        except Exception:
+            continue
+        if not resolved or resolved.startswith(("op:", "http:", "https:",
+                                                "opdef:")):
+            continue
+        if not os.path.isabs(resolved):
+            continue
+        if not is_inside(resolved, root):
+            continue
+        found.append((parm, raw, resolved))
+
+    return found
+
+
+def retoken_paths(root, target_var, progress=None):
+    """
+    Rewrite every already-internal path to use `target_var`.
+
+    Works on the resolved path rather than string-replacing the old token, so
+    it does not matter whether the parameter currently uses $JOB, $HIP, a
+    different variable or a bare absolute path -- they all end up consistent.
+
+    Returns (changed, skipped, errors).
+    """
+    root = _clean(root)
+    token = normalise_var(target_var)
+
+    if not var_is_usable(token, root):
+        return 0, 0, ["{} does not point at {} -- nothing changed.".format(
+            token or "That variable", root)]
+
+    entries = find_internal(root)
+    changed = 0
+    skipped = 0
+    errors = []
+
+    for index, (parm, raw, resolved) in enumerate(entries):
+        if progress is not None and not progress(index, len(entries), parm):
+            errors.append("Cancelled by user.")
+            break
+
+        # The path below the root, e.g. "tex/wood.exr".
+        relative = resolved[len(root):].lstrip("/")
+        if not relative:
+            skipped += 1
+            continue
+
+        # Keep whatever frame token the original used -- resolved has it
+        # already expanded to a concrete frame.
+        tail = os.path.basename(raw.replace("\\", "/"))
+        if is_sequence(raw) and tail:
+            relative = "/".join(relative.split("/")[:-1] + [tail])
+
+        new_value = "{}/{}".format(token, relative)
+        if new_value == raw:
+            skipped += 1
+            continue
+
+        try:
+            parm.set(new_value)
+            changed += 1
+        except hou.PermissionError as exc:
+            errors.append("{} locked: {}".format(parm.node().path(), exc))
+        except Exception as exc:
+            errors.append("{}: {}".format(parm.node().path(), exc))
+
+    return changed, skipped, errors
 
 
 # ---------------------------------------------------------------------------
@@ -700,6 +825,31 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         root_row.addWidget(rescan)
         layout.addLayout(root_row)
 
+        # Which variable to write into repointed paths. Editable, so a studio
+        # variable can be typed rather than only $HIP or $JOB.
+        var_row = QtWidgets.QHBoxLayout()
+        var_row.addWidget(QtWidgets.QLabel("Use variable:"))
+
+        self.var_box = QtWidgets.QComboBox()
+        self.var_box.setEditable(True)
+        self.var_box.addItems(COMMON_VARS)
+        self.var_box.setFixedWidth(140)
+        self.var_box.setToolTip(
+            "The variable written into consolidated paths.\n"
+            "Any Houdini variable can be typed, not just these two.")
+        var_row.addWidget(self.var_box)
+
+        self.var_status = QtWidgets.QLabel("")
+        var_row.addWidget(self.var_status, 1)
+
+        self.update_btn = QtWidgets.QPushButton("Update paths in scene")
+        self.update_btn.setToolTip(
+            "Rewrite every path already inside the project to use this\n"
+            "variable. Copies nothing -- only the token changes.")
+        self.update_btn.clicked.connect(self._retoken)
+        var_row.addWidget(self.update_btn)
+        layout.addLayout(var_row)
+
         # Table
         self.table = QtWidgets.QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
@@ -794,7 +944,95 @@ class ConsolidatorDialog(QtWidgets.QDialog):
         bottom.addWidget(self.go_btn)
         layout.addLayout(bottom)
 
+        # Connected last: addItems() above would otherwise fire the handler
+        # before var_status and repoint_box exist.
+        self.var_box.currentTextChanged.connect(self._on_var_changed)
+        self._on_var_changed(self.var_box.currentText())
+
     # -- population ---------------------------------------------------------
+
+    def current_var(self):
+        """The variable the user picked, normalised to "$NAME" form."""
+        return normalise_var(self.var_box.currentText())
+
+    def _on_var_changed(self, _text):
+        """Report whether the typed variable actually points at the root."""
+        var = self.current_var()
+        root = _clean(self.root_field.text())
+        value = var_value(var)
+
+        if not var:
+            self.var_status.setText("")
+            self.update_btn.setEnabled(False)
+        elif not value:
+            self.var_status.setText(
+                "<span style='color:#ff6b6b'>{} is not set</span>".format(var))
+            self.update_btn.setEnabled(False)
+        elif value.lower() != root.lower():
+            self.var_status.setText(
+                "<span style='color:#ffb86b'>{} points at {}</span>".format(
+                    var, value))
+            self.update_btn.setEnabled(False)
+        else:
+            self.var_status.setText(
+                "<span style='color:#7ee787'>{} = {}</span>".format(var, value))
+            self.update_btn.setEnabled(True)
+
+        # Destinations are shown with this token, so redraw them.
+        for ref in self.refs:
+            ref.prefer_var = var
+        for row in range(self.table.rowCount()):
+            ref = self._ref_at(row)
+            item = self.table.item(row, COL_DEST)
+            if ref is not None and item is not None:
+                item.setText(ref.dest_relative())
+
+    def _retoken(self):
+        """Swap the variable on every path already inside the project."""
+        var = self.current_var()
+        root = _clean(self.root_field.text())
+
+        entries = find_internal(root)
+        if not entries:
+            hou.ui.displayMessage(
+                "No paths inside the project to update.")
+            return
+
+        confirm = QtWidgets.QMessageBox.question(
+            self, "Update paths in scene",
+            "Rewrite {} path(s) already inside the project to use "
+            "{}?\n\nNo files are copied or moved -- only the variable "
+            "changes.".format(len(entries), var),
+            QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
+        if confirm != QtWidgets.QMessageBox.Ok:
+            return
+
+        dialog = QtWidgets.QProgressDialog(
+            "Updating paths...", "Cancel", 0, len(entries), self)
+        dialog.setWindowModality(Qt.WindowModal)
+        dialog.setMinimumDuration(0)
+
+        def progress(index, total, parm):
+            dialog.setValue(index)
+            dialog.setLabelText(parm.node().path())
+            QtWidgets.QApplication.processEvents()
+            return not dialog.wasCanceled()
+
+        with hou.undos.group("Update paths to {}".format(var)):
+            changed, skipped, errors = retoken_paths(root, var, progress)
+        dialog.setValue(len(entries))
+
+        summary = "Updated {} path(s) to {}.".format(changed, var)
+        if skipped:
+            summary += "\n{} already correct.".format(skipped)
+        if errors:
+            summary += "\n\n{} problem(s):\n{}".format(
+                len(errors), "\n".join(errors[:12]))
+            QtWidgets.QMessageBox.warning(self, "Update paths", summary)
+        else:
+            QtWidgets.QMessageBox.information(self, "Update paths", summary)
+
+        self.refresh()
 
     def _browse_root(self):
         start = self.root_field.text() or project_root()
@@ -814,7 +1052,10 @@ class ConsolidatorDialog(QtWidgets.QDialog):
             return
 
         with hou.InterruptableOperation("Scanning scene", open_interrupt_dialog=False):
-            self.refs = scan(root, include_missing=not self.hide_missing.isChecked())
+            self.refs = scan(
+                root,
+                include_missing=not self.hide_missing.isChecked(),
+                prefer_var=self.current_var())
         self._populate()
 
     def _drive_colour(self, drive):
@@ -1277,7 +1518,8 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
     def _update_repoint_label(self):
         """Name the token that will actually be written, not a guess."""
-        token = root_token(_clean(self.root_field.text()))
+        token = root_token(_clean(self.root_field.text()),
+                           self.current_var())
         if token.startswith("$"):
             self.repoint_box.setText(
                 "Repoint parameters to {}-relative paths".format(token))
@@ -1357,7 +1599,7 @@ class ConsolidatorDialog(QtWidgets.QDialog):
 
         if self.repoint_box.isChecked():
             note = "Parameters will be repointed to {}-relative paths.".format(
-                root_token(root))
+                root_token(root, self.current_var()))
         else:
             note = "Parameters will NOT be changed."
 
